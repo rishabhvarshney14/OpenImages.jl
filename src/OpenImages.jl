@@ -8,7 +8,15 @@ using AWSCore
 OID_v4 = "https://storage.googleapis.com/openimages/2018_04/"
 OID_v5 = "https://storage.googleapis.com/openimages/v5/"
 
+"""
+    class_label_codes(class_labels, csv_dir=nothing)
+Gets a dictionary that maps a list of OpenImages image class labels to their
+corresponding image class label codes.
 
+# Arguments
+- `class_labels`: list of labels for OpenImages dataset to download.
+- `csv_dir`: directory where we should look for the class annotation CSV file.
+"""
 function class_label_codes(class_labels, csv_dir=nothing)
     classes_csv = "class-descriptions-boxable.csv"
     url = OID_v5 * classes_csv
@@ -34,10 +42,16 @@ function class_label_codes(class_labels, csv_dir=nothing)
             labels_to_codes[class_label.Column2] = class_label.Column1
         end
     end
-
     return labels_to_codes
 end
 
+"""
+    get_annotations_csv(section)
+Requests the annotations CSV for a split section.
+
+# Arguments
+- `section`: the relevant split section, "train", "validation", or "test".
+"""
 function get_annotations_csv(section)
     url = OID_v5 * section * "-annotations-bbox.csv"
     response = HTTP.get(url, redirect=true)
@@ -49,17 +63,26 @@ function get_annotations_csv(section)
     return response
 end
 
+"""
+    group_bounding_boxes(section, label_codes, csv_dir=nothing)
+Returns a dictionary with image label as key and GroupedDataFrame as the value.
+
+# Arguments
+- `section`: the relevant split section, "train", "validation", or "test".
+- `label_codes`: dictionary with class labels mapped to the image class.
+- `csv_dir`: directory where we should look for the class annotation CSV file.
+"""
 function group_bounding_boxes(section, label_codes, csv_dir=nothing)
     if csv_dir === nothing
         response = get_annotations_csv(section)
         df_images = CSV.File(response.body)
     else
         bbox_csv_file_path = joinpath(csv_dir, section * "-annotations-bbox.csv")
-        # if !isdir(bbox_csv_file_path)
-        #     response = get_annotations_csv(section)
-        #     body = CSV.File(response.body)
-        #     CSV.write(bbox_csv_file_path, body)
-        # end
+        if !isfile(bbox_csv_file_path)
+            response = get_annotations_csv(section)
+            body = CSV.File(response.body)
+            CSV.write(bbox_csv_file_path, body)
+        end
         df_images = CSV.File(bbox_csv_file_path) |> DataFrame
     end
 
@@ -84,6 +107,10 @@ function group_bounding_boxes(section, label_codes, csv_dir=nothing)
     return labels_to_bounding_box_groups
 end
 
+"""
+    download_single_image(image_file_path, dest_file_path)
+Downloads and saves an image file from the OpenImages dataset.
+"""
 function download_single_image(image_file_path, dest_file_path)
     try
         config = AWSCore.aws_config(creds=nothing)
@@ -93,6 +120,10 @@ function download_single_image(image_file_path, dest_file_path)
     end
 end
 
+"""
+    download_images_by_id(image_ids, section, image_directory)
+Downloads a collection of images from OpenImages dataset.
+"""
 function download_images_by_id(image_ids, section, image_directory)
     for image_id in image_ids
         image_file_name = image_id * ".jpg"
@@ -102,7 +133,18 @@ function download_images_by_id(image_ids, section, image_directory)
     end
 end
 
-function download_images(dest_dir, class_labels, annotation_format=nothing, csv_dir=nothing, limit=nothing)
+"""
+    download_images(dest_dir, class_labels, csv_dir=nothing, limit=nothing)
+Downloads a dataset of images for a specified list of OpenImages image classes and returns
+dictionary of the images directory for each class label.
+
+# Arguments
+- `dest_dir`: base directory under which the images and annotations will be stored.
+- `class_labels`: list of labels for OpenImages dataset to download.
+- `csv_dir`: directory where we should look for required CSV file (if not present files will be downloaded).
+- `limit`: the maximum number of images per label to be download.
+"""
+function download_images(dest_dir, class_labels, csv_dir=nothing, limit=nothing)
     if csv_dir !== nothing && !isdir(csv_dir)
         mkdir(csv_dir)
     end
@@ -142,16 +184,9 @@ function download_images(dest_dir, class_labels, annotation_format=nothing, csv_
             end
             download_images_by_id(image_ids, section, class_directories[class_label])
             label_download_counts[class_label] += length(image_ids)
-
-            if annotation_format !== nothing
-                build_annotation
-            end
         end
     end
     return class_directories
 end
 
-label_codes = class_label_codes(["Helmet"], "D:/Projects/OpenImages/file")
-boxes = group_bounding_boxes("validation", label_codes, "D:/Projects/OpenImages/file")
-download_single_image("validation/000595fe6fee6369.jpg", "D:/Projects/OpenImages/file/file.jpg")
 end # module
